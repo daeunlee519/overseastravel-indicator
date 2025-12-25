@@ -1,0 +1,1 @@
+서버 연결 오류: response.json is not a function그냥 ㅂ

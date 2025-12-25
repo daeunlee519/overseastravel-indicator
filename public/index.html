@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>플레이스여행검색 Dashboard - Query 분석</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🏖️ 플레이스여행검색 Dashboard - Query 분석</h1>
+            <p>XLSX 파일을 업로드하여 query별 area_sc, area_cc의 주간 증감을 분석하세요</p>
+        </header>
+
+        <div class="main-controls">
+            <button class="control-btn secondary" id="showDataBtn">📊 기존 데이터 조회</button>
+            <button class="control-btn secondary" id="showDashboardBtn">📈 대시보드</button>
+            <button class="control-btn secondary" id="showFilterBtn">🔍 필터 분석</button>
+            <button class="control-btn primary" id="showUploadBtn">📁 새 파일 업로드</button>
+        </div>
+
+        <!-- 파일 업로드 및 히스토리 섹션 -->
+        <div class="upload-section" id="uploadSection">
+            <div class="section-header">
+                <h2>📁 파일 업로드 & 히스토리</h2>
+                <p>새로운 파일을 업로드하고 업로드 기록을 확인하세요.</p>
+            </div>
+            
+            <!-- 업로드 영역 -->
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-content">
+                    <div class="upload-icon">📁</div>
+                    <h3>XLSX 파일을 드래그하거나 클릭하여 업로드</h3>
+                    <p>query, period, area_sc, area_cc 컬럼이 포함된 파일을 선택해주세요</p>
+                    <p class="format-info">Period 형식: 2025-08-11~2025-08-17</p>
+                    <p class="format-info">중복 처리: area_sc는 큰 값만, area_cc는 합산</p>
+                    <input type="file" id="fileInput" accept=".xlsx" style="display: none;">
+                    <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+                        파일 선택
+                    </button>
+                </div>
+                
+                <!-- 업로드 진행 상황 -->
+                <div class="upload-progress" id="uploadProgress" style="display: none;">
+                    <div class="progress-header">
+                        <h4>📤 파일 업로드 중...</h4>
+                        <span class="progress-percentage" id="progressPercentage">0%</span>
+                    </div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" id="progressBar"></div>
+                    </div>
+                    <div class="progress-status" id="progressStatus">파일을 서버로 전송 중...</div>
+                </div>
+            </div>
+            
+            <!-- 업로드 히스토리 -->
+            <div class="upload-history-section">
+                <h3>📋 업로드 히스토리</h3>
+                <p>업로드한 파일들의 기록을 확인할 수 있습니다.</p>
+                <div class="history-list" id="historyList"></div>
+            </div>
+        </div>
+
+        <!-- 기존 데이터 조회 섹션 -->
+        <div class="data-section" id="dataSection" style="display: none;">
+            <div class="section-header">
+                <h2>📊 저장된 데이터 조회</h2>
+                <p>이전에 업로드한 모든 데이터를 확인할 수 있습니다.</p>
+            </div>
+            
+            <div class="data-summary" id="dataSummary"></div>
+            
+            <div class="data-controls">
+                <div class="query-selector">
+                    <label for="dataQuerySelect">분석할 쿼리 선택:</label>
+                    <div class="query-search-container">
+                        <input type="text" id="dataQuerySearch" placeholder="쿼리 검색..." class="query-search">
+                        <button type="button" id="showAllQueriesBtn" class="show-all-btn">모든 쿼리 보기</button>
+                        <div class="query-dropdown" id="dataQueryDropdown" style="display: none;">
+                            <div class="query-dropdown-list" id="dataQueryList">
+                                <!-- 검색 결과가 여기에 표시됩니다 -->
+                            </div>
+                        </div>
+                        <select id="dataQuerySelect" style="display: none;"></select>
+                    </div>
+                </div>
+                <div class="chart-type-selector">
+                    <label>차트 타입:</label>
+                    <button class="chart-type-btn active" data-type="line">선 그래프</button>
+                    <button class="chart-type-btn" data-type="bar">막대 그래프</button>
+                    <button class="chart-type-btn" data-type="growth">증감율</button>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <canvas id="dataChart"></canvas>
+            </div>
+
+            <div class="data-table-section">
+                <h3>📋 상세 데이터</h3>
+                <div class="table-container">
+                    <table id="dataTable">
+                        <thead>
+                            <tr>
+                                <th>기간</th>
+                                <th>Area SC</th>
+                                <th>Area CC</th>
+                                <th>CTR (%)</th>
+                                <th>SC 증감율 (%)</th>
+                                <th>CC 증감율 (%)</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 대시보드 섹션 -->
+        <div class="dashboard-section" id="dashboardSection" style="display: none;">
+            <div class="section-header">
+                <h2>📈 대시보드</h2>
+                <p>주간별 및 월간별 분석과 최신 트렌드를 한눈에 확인하세요.</p>
+            </div>
+            
+            <!-- 대시보드 탭 네비게이션 -->
+            <div class="dashboard-tabs">
+                <button class="tab-btn active" data-tab="weekly">📊 주간 분석</button>
+                <button class="tab-btn" data-tab="monthly">📅 월간 분석</button>
+            </div>
+            
+            <div class="dashboard-summary" id="dashboardSummary"></div>
+            
+            <!-- 주간 분석 탭 -->
+            <div class="tab-content active" id="weeklyTab">
+                <!-- 주차별 데이터 분석 -->
+                <div class="dashboard-card">
+                    <h3>📊 각 주차별 Top 50 쿼리</h3>
+                    <div class="period-selector">
+                        <label for="weeklyPeriodSelect">분석할 기간 선택:</label>
+                        <select id="weeklyPeriodSelect"></select>
+                    </div>
+                    <div class="criteria-selector">
+                        <label>정렬 기준 선택:</label>
+                        <div class="criteria-buttons">
+                            <button class="criteria-btn active" id="weeklyScBtn" data-criteria="sc">📈 Area SC (노출)</button>
+                            <button class="criteria-btn" id="weeklyCcBtn" data-criteria="cc">👆 Area CC (클릭)</button>
+                        </div>
+                    </div>
+                    <div class="analysis-summary" id="weeklyAnalysisSummary" style="display: none;">
+                        <div class="summary-content" id="weeklySummaryContent"></div>
+                    </div>
+                    <div class="table-container">
+                        <table id="weeklyAnalysisTable">
+                            <thead>
+                                <tr>
+                                    <th>순위</th>
+                                    <th>쿼리</th>
+                                    <th>Area SC</th>
+                                    <th>Area CC</th>
+                                    <th>CTR (%)</th>
+                                    <th>전주 순위</th>
+                                    <th>순위 변화</th>
+                                    <th>전주 Area SC</th>
+                                    <th>전주 Area CC</th>
+                                    <th>노출 감소율 (%)</th>
+                                    <th>클릭 감소율 (%)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- 데이터가 여기에 동적으로 로드됩니다 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <!-- 최신 주간 데이터 분석 -->
+                <div class="dashboard-card">
+                    <h3>🚀 최신 주간 전주 대비 증가율 Top 50</h3>
+                    <div class="latest-period-info" id="latestWeeklyPeriodInfo"></div>
+                    <div class="info-note">
+                        <i class="info-icon">ℹ️</i>
+                        <span>전주 기준 노출(Area SC) 300 이상인 쿼리에 대해서만 증가율을 계산합니다.</span>
+                    </div>
+                    <div class="analysis-summary" id="latestWeekAnalysisSummary" style="display: none;">
+                        <div class="summary-content" id="latestWeekSummaryContent"></div>
+                    </div>
+                    <div class="table-container">
+                        <table id="latestWeekTable">
+                            <thead>
+                                <tr>
+                                    <th>순위</th>
+                                    <th>쿼리</th>
+                                    <th>Area SC</th>
+                                    <th>Area CC</th>
+                                    <th>CTR (%)</th>
+                                    <th>증가율 (%)</th>
+                                    <th>전주 SC</th>
+                                    <th>전주 CC</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 월간 분석 탭 -->
+            <div class="tab-content" id="monthlyTab">
+                <!-- 월별 데이터 분석 -->
+                <div class="dashboard-card">
+                    <h3>📊 각 월별 Top 50 쿼리</h3>
+                    <div class="info-note">
+                        <i class="info-icon">ℹ️</i>
+                        <span>해당 월의 노출(Area SC) 기준으로 상위 50개 쿼리를 선별합니다.</span>
+                    </div>
+                    <div class="period-selector">
+                        <label for="monthlyPeriodSelect">분석할 월 선택:</label>
+                        <select id="monthlyPeriodSelect"></select>
+                    </div>
+                    
+                    <!-- 월간 분석 요약 -->
+                    <div class="analysis-summary" id="monthlyAnalysisSummary" style="display: none;">
+                        <div class="summary-content" id="monthlySummaryContent"></div>
+                    </div>
+                    
+                    <div class="table-container">
+                        <table id="monthlyAnalysisTable">
+                            <thead>
+                                <tr>
+                                    <th>순위</th>
+                                    <th>쿼리</th>
+                                    <th>Area SC</th>
+                                    <th>Area CC</th>
+                                    <th>CTR (%)</th>
+                                    <th>전월 순위</th>
+                                    <th>순위 변화</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- 데이터가 여기에 동적으로 로드됩니다 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <!-- 최신 월간 데이터 분석 -->
+                <div class="dashboard-card">
+                    <h3>🚀 최신 월간 전월 대비 증가율 Top 50</h3>
+                    <div class="latest-period-info" id="latestMonthlyPeriodInfo"></div>
+                    <div class="info-note">
+                        <i class="info-icon">ℹ️</i>
+                        <span>전월 기준 노출(Area SC) 300 이상인 쿼리에 대해서만 증가율을 계산합니다.</span>
+                    </div>
+                    
+                    <!-- 최신 월간 분석 요약 -->
+                    <div class="analysis-summary" id="latestMonthAnalysisSummary" style="display: none;">
+                        <div class="summary-content" id="latestMonthSummaryContent"></div>
+                    </div>
+                    
+                    <div class="table-container">
+                        <table id="latestMonthTable">
+                            <thead>
+                                <tr>
+                                    <th>순위</th>
+                                    <th>쿼리</th>
+                                    <th>Area SC</th>
+                                    <th>Area CC</th>
+                                    <th>CTR (%)</th>
+                                    <th>증가율 (%)</th>
+                                    <th>전월 SC</th>
+                                    <th>전월 CC</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 필터 분석 섹션 -->
+        <div class="filter-section" id="filterSection" style="display: none;">
+            <div class="section-header">
+                <h2>🔍 필터 분석 대시보드</h2>
+                <p>Query 코드별 필터링을 통한 동적 분석 및 시각화</p>
+            </div>
+            
+            <!-- 선택된 필터 표시 영역 -->
+            <div class="selected-filters" id="selectedFilters">
+                <div class="selected-filters-header">
+                    <span>선택된 필터:</span>
+                    <button id="clearAllFilters" class="clear-all-btn">전체 초기화</button>
+                </div>
+                <div class="filter-bubbles" id="filterBubbles">
+                    <!-- 선택된 필터들이 여기에 표시됩니다 -->
+                </div>
+            </div>
+            
+            <!-- 필터 컨트롤 -->
+            <div class="filter-controls">
+                <div class="filter-group">
+                    <label for="travelCityCodeFilter">Travel City Code:</label>
+                    <div class="filter-search-container">
+                        <input type="text" id="travelCityCodeSearch" placeholder="검색..." class="filter-search">
+                        <select id="travelCityCodeFilter" multiple>
+                            <option value="">전체</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label for="travelPtnFilter">Travel Pattern:</label>
+                    <div class="filter-search-container">
+                        <input type="text" id="travelPtnSearch" placeholder="검색..." class="filter-search">
+                        <select id="travelPtnFilter" multiple>
+                            <option value="">전체</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label for="travelPtnCodeFilter">Travel Pattern Code:</label>
+                    <div class="filter-search-container">
+                        <input type="text" id="travelPtnCodeSearch" placeholder="검색..." class="filter-search">
+                        <select id="travelPtnCodeFilter" multiple>
+                            <option value="">전체</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label for="travelCountryCodeFilter">Travel Country Code:</label>
+                    <div class="filter-search-container">
+                        <input type="text" id="travelCountryCodeSearch" placeholder="검색..." class="filter-search">
+                        <select id="travelCountryCodeFilter" multiple>
+                            <option value="">전체</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label for="travelMonthFilter">Travel Month:</label>
+                    <div class="filter-search-container">
+                        <input type="text" id="travelMonthSearch" placeholder="검색..." class="filter-search">
+                        <select id="travelMonthFilter" multiple>
+                            <option value="">전체</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="filter-actions">
+                    <button id="applyFilterBtn" class="filter-btn primary">필터 적용</button>
+                    <button id="resetFilterBtn" class="filter-btn secondary">필터 초기화</button>
+                </div>
+            </div>
+            
+            <!-- 필터 결과 요약 -->
+            <div class="filter-summary" id="filterSummary">
+                <div class="summary-card">
+                    <h4>선택된 쿼리 수</h4>
+                    <span id="filteredQueryCount">0</span>
+                </div>
+                <div class="summary-card">
+                    <h4>총 Area SC</h4>
+                    <span id="filteredTotalSC">0</span>
+                </div>
+                <div class="summary-card">
+                    <h4>총 Area CC</h4>
+                    <span id="filteredTotalCC">0</span>
+                </div>
+                <div class="summary-card">
+                    <h4>평균 증가율</h4>
+                    <span id="filteredAvgGrowth">0%</span>
+                </div>
+            </div>
+            
+                    <!-- 차트 영역 -->
+        <div class="filter-charts">
+            <div class="chart-container">
+                <h3>주간 지표 추이</h3>
+                <canvas id="filterTrendChart"></canvas>
+            </div>
+        </div>
+            
+            <!-- 필터 결과 테이블 -->
+            <div class="filter-results">
+                <h3>필터된 쿼리 상세</h3>
+                <div class="table-container">
+                    <table id="filterResultsTable">
+                        <thead>
+                            <tr>
+                                <th>순위</th>
+                                <th>쿼리</th>
+                                <th>Travel City Code</th>
+                                <th>Travel Pattern</th>
+                                <th>Travel Country Code</th>
+                                <th>Travel Month</th>
+                                <th>총 Area SC</th>
+                                <th>총 Area CC</th>
+                                <th>CTR (%)</th>
+                                <th>최신 증가율</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="loading" id="loading" style="display: none;">
+            <div class="spinner"></div>
+            <p>처리 중입니다...</p>
+        </div>
+
+        <div class="results-section" id="resultsSection" style="display: none;">
+            <div class="summary-cards" id="summaryCards"></div>
+            
+            <div class="controls">
+                <div class="query-selector">
+                    <label for="querySelect">분석할 쿼리 선택:</label>
+                    <select id="querySelect"></select>
+                </div>
+                <div class="chart-type-selector">
+                    <label>차트 타입:</label>
+                    <button class="chart-type-btn active" data-type="line">선 그래프</button>
+                    <button class="chart-type-btn" data-type="bar">막대 그래프</button>
+                    <button class="chart-type-btn" data-type="growth">증감율</button>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <canvas id="mainChart"></canvas>
+            </div>
+
+            <div class="data-table-section">
+                <h3>📋 상세 데이터</h3>
+                <div class="table-container">
+                    <table id="resultsTable">
+                        <thead>
+                            <tr>
+                                <th>기간</th>
+                                <th>Area SC</th>
+                                <th>Area CC</th>
+                                <th>CTR (%)</th>
+                                <th>SC 증감율 (%)</th>
+                                <th>CC 증감율 (%)</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="error-message" id="errorMessage" style="display: none;">
+            <div class="error-icon">⚠️</div>
+            <div class="error-text"></div>
+        </div>
+
+        <div class="success-message" id="successMessage" style="display: none;">
+            <div class="success-icon">✅</div>
+            <div class="success-text"></div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
+
