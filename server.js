@@ -1381,18 +1381,38 @@ app.delete('/api/remove-period/:period', (req, res) => {
     }
 });
 
+// 메모리 사용량 모니터링
+function logMemoryUsage() {
+    const used = process.memoryUsage();
+    console.log('메모리 사용량:', {
+        rss: `${Math.round(used.rss / 1024 / 1024)}MB`,
+        heapTotal: `${Math.round(used.heapTotal / 1024 / 1024)}MB`,
+        heapUsed: `${Math.round(used.heapUsed / 1024 / 1024)}MB`,
+        external: `${Math.round(used.external / 1024 / 1024)}MB`
+    });
+}
+
 // 서버 시작
 app.listen(PORT, () => {
     console.log(`주간지표 트래킹 서버가 http://localhost:${PORT}에서 실행 중입니다.`);
     console.log('환경:', process.env.NODE_ENV || 'development');
     console.log('데이터 파일 경로:', DATA_FILE);
     console.log('업로드 히스토리 파일 경로:', UPLOAD_HISTORY_FILE);
+    logMemoryUsage();
+    
     try {
         ensureDataDirectory();
         console.log('서버 초기화 완료');
     } catch (error) {
         console.error('서버 초기화 실패:', error);
         console.error('데이터 저장 기능이 작동하지 않을 수 있습니다.');
+    }
+    
+    // 주기적으로 메모리 사용량 로깅 (프로덕션에서만)
+    if (process.env.NODE_ENV === 'production') {
+        setInterval(() => {
+            logMemoryUsage();
+        }, 60000); // 1분마다
     }
 });
 
