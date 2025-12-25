@@ -760,31 +760,87 @@ function generateDashboardData(data) {
     }
 }
 
+// Multer 에러 핸들러
+const handleMulterError = (err, req, res, next) => {
+    if (err instanceof multer.MulterError) {
+        console.error('Multer 에러:', err);
+        if (err.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({
+                success: false,
+                error: '파일 크기가 너무 큽니다. 최대 50MB까지 업로드 가능합니다.'
+            });
+        }
+        return res.status(400).json({
+            success: false,
+            error: '파일 업로드 오류: ' + err.message
+        });
+    } else if (err) {
+        console.error('업로드 미들웨어 에러:', err);
+        return res.status(400).json({
+            success: false,
+            error: err.message || '파일 업로드 중 오류가 발생했습니다.'
+        });
+    }
+    next();
+};
+
 // XLSX/CSV 파일 업로드 및 분석 API
-app.post('/upload', upload.single('xlsxFile'), (req, res) => {
+app.post('/upload', upload.single('xlsxFile'), handleMulterError, (req, res) => {
     const startTime = Date.now();
     let requestCompleted = false;
     
-    // 타임아웃 설정 (5분)
+    // 타임아웃 설정 (3분으로 단축)
     const timeout = setTimeout(() => {
         if (!requestCompleted) {
             requestCompleted = true;
-            console.error('업로드 요청 타임아웃');
+            console.error('업로드 요청 타임아웃 (3분)');
             if (!res.headersSent) {
-                res.status(504).json({ 
-                    success: false,
-                    error: '요청 처리 시간이 초과되었습니다. 파일이 너무 클 수 있습니다.'
-                });
+                try {
+                    res.status(504).json({ 
+                        success: false,
+                        error: '요청 처리 시간이 초과되었습니다. 파일이 너무 크거나 복잡할 수 있습니다.'
+                    });
+                } catch (e) {
+                    console.error('타임아웃 응답 전송 실패:', e);
+                }
             }
         }
-    }, 5 * 60 * 1000);
+    }, 3 * 60 * 1000);
     
     // 응답 전송 시 타임아웃 클리어
     const originalSend = res.send.bind(res);
+    const originalJson = res.json.bind(res);
+    
     res.send = function(data) {
         clearTimeout(timeout);
         requestCompleted = true;
         return originalSend(data);
+    };
+    
+    res.json = function(data) {
+        clearTimeout(timeout);
+        requestCompleted = true;
+        return originalJson(data);
+    };
+    
+    // 전역 에러 핸들러
+    const handleError = (error, message) => {
+        clearTimeout(timeout);
+        requestCompleted = true;
+        console.error(message, error);
+        logMemoryUsage();
+        
+        if (!res.headersSent) {
+            try {
+                res.status(500).json({ 
+                    success: false,
+                    error: message + ': ' + (error.message || '알 수 없는 오류'),
+                    details: process.env.NODE_ENV === 'production' ? undefined : error.stack
+                });
+            } catch (e) {
+                console.error('에러 응답 전송 실패:', e);
+            }
+        }
     };
     
     try {
@@ -936,20 +992,22 @@ app.post('/upload', upload.single('xlsxFile'), (req, res) => {
         });
 
     } catch (error) {
-        clearTimeout(timeout);
-        requestCompleted = true;
-        
-        console.error('파일 처리 오류:', error);
-        console.error('에러 스택:', error.stack);
-        logMemoryUsage();
-        
+        handleError(error, '파일 처리 중 오류가 발생했습니다');
+    }
+});
+
+// 업로드 엔드포인트 전역 에러 핸들러
+app.use((err, req, res, next) => {
+    if (req.path === '/upload') {
+        console.error('업로드 엔드포인트 전역 에러:', err);
         if (!res.headersSent) {
-            res.status(500).json({ 
+            res.status(500).json({
                 success: false,
-                error: '파일 처리 중 오류가 발생했습니다: ' + error.message,
-                details: process.env.NODE_ENV === 'production' ? undefined : error.stack
+                error: '서버 오류가 발생했습니다: ' + (err.message || '알 수 없는 오류')
             });
         }
+    } else {
+        next(err);
     }
 });
 
