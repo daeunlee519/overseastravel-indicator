@@ -725,8 +725,20 @@ function generateDashboardData(data) {
 // XLSX/CSV 파일 업로드 및 분석 API
 app.post('/upload', upload.single('xlsxFile'), (req, res) => {
     try {
+        console.log('업로드 요청 받음:', {
+            hasFile: !!req.file,
+            fileName: req.file?.originalname,
+            fileSize: req.file?.size,
+            mimetype: req.file?.mimetype
+        });
+        
         if (!req.file) {
-            return res.status(400).json({ error: '파일을 선택해주세요.' });
+            console.error('파일이 없습니다. 요청 본문:', req.body);
+            return res.status(400).json({ 
+                success: false,
+                error: '파일을 선택해주세요.',
+                details: 'xlsxFile 필드에 파일이 없습니다.'
+            });
         }
 
         let jsonData;

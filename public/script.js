@@ -991,7 +991,15 @@ class WeeklyTracker {
                     this.updateUploadProgress(100, '서버에서 파일 처리 중...');
                     resolve(xhr);
                 } else {
-                    reject(new Error('업로드 실패: ' + xhr.status));
+                    // 400, 500 등의 에러 응답도 JSON으로 파싱 시도
+                    let errorMessage = '업로드 실패: ' + xhr.status;
+                    try {
+                        const errorResponse = JSON.parse(xhr.responseText);
+                        errorMessage = errorResponse.error || errorMessage;
+                    } catch (e) {
+                        // JSON 파싱 실패 시 기본 메시지 사용
+                    }
+                    reject(new Error(errorMessage));
                 }
             });
 
