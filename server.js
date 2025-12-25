@@ -23,9 +23,18 @@ app.use(express.static('public'));
 
 // 데이터 디렉토리 생성
 function ensureDataDirectory() {
-    const dataDir = path.dirname(DATA_FILE);
-    if (!fs.existsSync(dataDir)) {
-        fs.mkdirSync(dataDir, { recursive: true });
+    try {
+        const dataDir = path.dirname(DATA_FILE);
+        if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
+            console.log('데이터 디렉토리 생성 완료:', dataDir);
+        }
+        // 디렉토리 쓰기 권한 확인
+        fs.accessSync(dataDir, fs.constants.W_OK);
+        console.log('데이터 디렉토리 쓰기 권한 확인 완료');
+    } catch (error) {
+        console.error('데이터 디렉토리 생성/권한 오류:', error);
+        throw new Error('데이터 저장 디렉토리를 생성할 수 없습니다: ' + error.message);
     }
 }
 
@@ -194,13 +203,38 @@ function cleanExistingDataDuplicates(data) {
     return cleanedData;
 }
 
-// 데이터 저장
+// 데이터 저장 (메모리 효율적)
 function saveData(data) {
     try {
         ensureDataDirectory();
-        fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+        
+        // 메모리 사용량 체크
+        const dataSize = JSON.stringify(data).length;
+        const maxSize = 100 * 1024 * 1024; // 100MB 제한
+        
+        if (dataSize > maxSize) {
+            console.warn('데이터 크기가 큽니다:', dataSize, 'bytes');
+            // 큰 데이터는 압축 없이 저장 (공백 최소화)
+            const dataString = JSON.stringify(data);
+            fs.writeFileSync(DATA_FILE, dataString, 'utf8');
+        } else {
+            // 작은 데이터는 보기 좋게 포맷팅
+            const dataString = JSON.stringify(data, null, 2);
+            fs.writeFileSync(DATA_FILE, dataString, 'utf8');
+        }
+        
+        console.log('데이터 저장 완료:', DATA_FILE, '크기:', dataSize, 'bytes');
     } catch (error) {
         console.error('데이터 저장 오류:', error);
+        console.error('저장 경로:', DATA_FILE);
+        
+        // 메모리 부족 에러 체크
+        if (error.message && error.message.includes('ENOSPC')) {
+            throw new Error('디스크 공간이 부족합니다.');
+        } else if (error.message && error.message.includes('heap')) {
+            throw new Error('메모리가 부족합니다. 데이터가 너무 큽니다.');
+        }
+        throw new Error('데이터를 저장할 수 없습니다: ' + error.message);
     }
 }
 
@@ -811,16 +845,24 @@ app.post('/upload', upload.single('xlsxFile'), (req, res) => {
         }
 
         // 새 데이터 분석
+        console.log('데이터 분석 시작, 행 수:', normalizedData.length);
         const newAnalysisResults = analyzeWeeklyData(normalizedData);
+        console.log('분석 완료, 쿼리 수:', Object.keys(newAnalysisResults).length);
         
         // 기존 데이터 로드
+        console.log('기존 데이터 로드 시작');
         const existingData = loadData();
+        console.log('기존 데이터 로드 완료, 쿼리 수:', Object.keys(existingData).length);
         
         // 데이터 병합
+        console.log('데이터 병합 시작');
         const mergedData = mergeData(existingData, newAnalysisResults);
+        console.log('데이터 병합 완료, 총 쿼리 수:', Object.keys(mergedData).length);
         
         // 병합된 데이터 저장
+        console.log('데이터 저장 시작');
         saveData(mergedData);
+        console.log('데이터 저장 완료');
         
         // 업로드 히스토리 업데이트
         const uploadHistory = loadUploadHistory();
@@ -843,7 +885,12 @@ app.post('/upload', upload.single('xlsxFile'), (req, res) => {
 
     } catch (error) {
         console.error('파일 처리 오류:', error);
-        res.status(500).json({ error: '파일 처리 중 오류가 발생했습니다: ' + error.message });
+        console.error('에러 스택:', error.stack);
+        res.status(500).json({ 
+            success: false,
+            error: '파일 처리 중 오류가 발생했습니다: ' + error.message,
+            details: process.env.NODE_ENV === 'production' ? undefined : error.stack
+        });
     }
 });
 
@@ -1337,6 +1384,15 @@ app.delete('/api/remove-period/:period', (req, res) => {
 // 서버 시작
 app.listen(PORT, () => {
     console.log(`주간지표 트래킹 서버가 http://localhost:${PORT}에서 실행 중입니다.`);
-    ensureDataDirectory();
+    console.log('환경:', process.env.NODE_ENV || 'development');
+    console.log('데이터 파일 경로:', DATA_FILE);
+    console.log('업로드 히스토리 파일 경로:', UPLOAD_HISTORY_FILE);
+    try {
+        ensureDataDirectory();
+        console.log('서버 초기화 완료');
+    } catch (error) {
+        console.error('서버 초기화 실패:', error);
+        console.error('데이터 저장 기능이 작동하지 않을 수 있습니다.');
+    }
 });
 
