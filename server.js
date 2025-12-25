@@ -787,63 +787,16 @@ const handleMulterError = (err, req, res, next) => {
 // XLSX/CSV 파일 업로드 및 분석 API
 app.post('/upload', upload.single('xlsxFile'), handleMulterError, (req, res) => {
     const startTime = Date.now();
-    let requestCompleted = false;
     
-    // 타임아웃 설정 (3분으로 단축)
-    const timeout = setTimeout(() => {
-        if (!requestCompleted) {
-            requestCompleted = true;
-            console.error('업로드 요청 타임아웃 (3분)');
-            if (!res.headersSent) {
-                try {
-                    res.status(504).json({ 
-                        success: false,
-                        error: '요청 처리 시간이 초과되었습니다. 파일이 너무 크거나 복잡할 수 있습니다.'
-                    });
-                } catch (e) {
-                    console.error('타임아웃 응답 전송 실패:', e);
-                }
-            }
-        }
-    }, 3 * 60 * 1000);
+    // 즉시 응답 전송 (Render 타임아웃 방지)
+    res.status(202).json({
+        success: true,
+        message: '파일 업로드가 시작되었습니다. 처리 중...'
+    });
     
-    // 응답 전송 시 타임아웃 클리어
-    const originalSend = res.send.bind(res);
-    const originalJson = res.json.bind(res);
-    
-    res.send = function(data) {
-        clearTimeout(timeout);
-        requestCompleted = true;
-        return originalSend(data);
-    };
-    
-    res.json = function(data) {
-        clearTimeout(timeout);
-        requestCompleted = true;
-        return originalJson(data);
-    };
-    
-    // 전역 에러 핸들러
-    const handleError = (error, message) => {
-        clearTimeout(timeout);
-        requestCompleted = true;
-        console.error(message, error);
-        logMemoryUsage();
-        
-        if (!res.headersSent) {
-            try {
-                res.status(500).json({ 
-                    success: false,
-                    error: message + ': ' + (error.message || '알 수 없는 오류'),
-                    details: process.env.NODE_ENV === 'production' ? undefined : error.stack
-                });
-            } catch (e) {
-                console.error('에러 응답 전송 실패:', e);
-            }
-        }
-    };
-    
-    try {
+    // 백그라운드에서 처리
+    setImmediate(async () => {
+        try {
         console.log('업로드 요청 받음:', {
             hasFile: !!req.file,
             fileName: req.file?.originalname,
