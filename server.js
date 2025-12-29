@@ -61,8 +61,9 @@ function loadData() {
             // 기존 데이터의 중복 제거 및 정리
             const cleanedData = cleanExistingDataDuplicates(actualData);
             
-            // 정리된 데이터가 원본과 다르면 저장
-            if (JSON.stringify(cleanedData) !== JSON.stringify(actualData)) {
+            // 정리된 데이터가 원본과 다르면 저장 (메모리 절약을 위해 간단한 비교)
+            const needsSave = Object.keys(cleanedData).length !== Object.keys(actualData).length;
+            if (needsSave) {
                 saveData(cleanedData);
                 console.log('기존 데이터 중복 제거 및 정리 완료');
             }
@@ -440,7 +441,7 @@ function mergeData(existingData, newData) {
                     existing.scGrowthRates.push(newQueryData.scGrowthRates[index]);
                     existing.ccGrowthRates.push(newQueryData.ccGrowthRates[index]);
                 } else {
-                    // 동일한 기간이 있는 경우 중복 처리 로직 적용
+                    // 동일한 기간이 있는 경우 새 데이터로 교체 (같은 파일 재업로드 시)
                     const existingIndex = existing.periods.indexOf(period);
                     
                     // area_sc: 둘 중 큰 값만 취함
@@ -453,8 +454,8 @@ function mergeData(existingData, newData) {
                         existing.srArea[existingIndex] = newQueryData.srArea[index] || '';
                     }
                     
-                    // area_cc: 두 값을 더함
-                    existing.areaCc[existingIndex] += newQueryData.areaCc[index];
+                    // area_cc: 새 데이터로 교체 (같은 파일 재업로드 시 중복 합산 방지)
+                    existing.areaCc[existingIndex] = newQueryData.areaCc[index];
                 }
             });
             
