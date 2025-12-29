@@ -177,7 +177,7 @@ function cleanExistingDataDuplicates(data) {
             const ccGrowthRate = prevCc !== 0 ? ((currCc - prevCc) / prevCc * 100) : 0;
             
             cleanedScGrowthRates.push(scGrowthRate);
-            cleanedCcGrowthRates.push(scGrowthRate);
+            cleanedCcGrowthRates.push(ccGrowthRate);
         }
         
         // 요약 정보 업데이트
@@ -270,11 +270,29 @@ const upload = multer({
         fieldSize: 10 * 1024 * 1024  // 10MB 필드 크기 제한
     },
     fileFilter: (req, file, cb) => {
-        if (file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
-            file.mimetype === 'text/csv' ||
-            file.originalname.endsWith('.csv')) {
+        console.log('파일 필터 체크:', {
+            mimetype: file.mimetype,
+            originalname: file.originalname,
+            fieldname: file.fieldname
+        });
+        
+        // 파일 확장자로 먼저 체크 (더 안전함)
+        const fileName = file.originalname.toLowerCase();
+        const isValidExtension = fileName.endsWith('.xlsx') || 
+                                  fileName.endsWith('.xls') || 
+                                  fileName.endsWith('.csv');
+        
+        // MIME 타입 체크
+        const isValidMimeType = file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+                                file.mimetype === 'application/vnd.ms-excel' ||
+                                file.mimetype === 'text/csv' ||
+                                file.mimetype === 'application/csv' ||
+                                file.mimetype === 'application/octet-stream'; // curl 등에서 전송 시
+        
+        if (isValidExtension || isValidMimeType) {
             cb(null, true);
         } else {
+            console.error('파일 필터 실패:', file);
             cb(new Error('XLSX 또는 CSV 파일만 업로드 가능합니다.'), false);
         }
     }
@@ -302,6 +320,47 @@ function analyzeWeeklyData(worksheetData) {
             return new Date(startDateA) - new Date(startDateB);
         });
         
+        // 같은 기간의 중복 데이터를 먼저 처리
+        const periodMap = new Map();
+        
+        queryData.forEach(row => {
+            const period = row.period || '';
+            const areaSc = parseFloat(row.area_sc) || 0;
+            const areaCc = parseFloat(row.area_cc) || 0;
+            const srArea = row.sr_area || '';
+            
+            if (periodMap.has(period)) {
+                // 동일한 기간이 있는 경우 중복 처리 로직 적용
+                const existing = periodMap.get(period);
+                
+                // area_sc: 둘 중 큰 값만 취함
+                if (areaSc > existing.areaSc) {
+                    existing.areaSc = areaSc;
+                    // area_sc가 더 큰 경우 sr_area도 업데이트
+                    existing.srArea = srArea;
+                }
+                
+                // area_cc: 두 값을 더함
+                existing.areaCc += areaCc;
+            } else {
+                // 새로운 기간은 그대로 추가
+                periodMap.set(period, {
+                    period: period,
+                    areaSc: areaSc,
+                    areaCc: areaCc,
+                    srArea: srArea
+                });
+            }
+        });
+        
+        // Map에서 배열로 변환하고 정렬
+        const sortedData = Array.from(periodMap.values())
+            .sort((a, b) => {
+                const startDateA = a.period.split('~')[0] || '';
+                const startDateB = b.period.split('~')[0] || '';
+                return new Date(startDateA) - new Date(startDateB);
+            });
+        
         const periods = [];
         const scData = [];
         const ccData = [];
@@ -309,23 +368,20 @@ function analyzeWeeklyData(worksheetData) {
         const scGrowthRates = [];
         const ccGrowthRates = [];
         
-        queryData.forEach((row, index) => {
-            const period = row.period || `Period ${index + 1}`;
-            const areaSc = parseFloat(row.area_sc) || 0;
-            const areaCc = parseFloat(row.area_cc) || 0;
-            const srArea = row.sr_area || '';
-            
-            periods.push(period);
-            scData.push(areaSc);
-            ccData.push(areaCc);
-            srAreaData.push(srArea);
+        sortedData.forEach((item, index) => {
+            periods.push(item.period);
+            scData.push(item.areaSc);
+            ccData.push(item.areaCc);
+            srAreaData.push(item.srArea);
             
             if (index > 0) {
-                const prevSc = parseFloat(queryData[index - 1].area_sc) || 0;
-                const prevCc = parseFloat(queryData[index - 1].area_cc) || 0;
+                const prevSc = scData[index - 1];
+                const prevCc = ccData[index - 1];
+                const currSc = item.areaSc;
+                const currCc = item.areaCc;
                 
-                const scGrowthRate = prevSc !== 0 ? ((areaSc - prevSc) / prevSc * 100) : 0;
-                const ccGrowthRate = prevCc !== 0 ? ((areaCc - prevCc) / prevCc * 100) : 0;
+                const scGrowthRate = prevSc !== 0 ? ((currSc - prevSc) / prevSc * 100) : 0;
+                const ccGrowthRate = prevCc !== 0 ? ((currCc - prevCc) / prevCc * 100) : 0;
                 
                 scGrowthRates.push(scGrowthRate);
                 ccGrowthRates.push(ccGrowthRate);
@@ -863,9 +919,9 @@ app.post('/upload', upload.single('xlsxFile'), handleMulterError, (req, res) => 
                     normalizedRow.query = queryValue;
                 } else if (normalizedKey.includes('period') || normalizedKey === 'period') {
                     normalizedRow.period = String(row[key]).trim();
-                } else if (normalizedKey.includes('area_sc') || normalizedKey.includes('areasc') || normalizedKey.includes('sc')) {
+                } else if (normalizedKey.includes('area_sc') || normalizedKey.includes('areasc') || normalizedKey === 'sc') {
                     normalizedRow.area_sc = row[key];
-                } else if (normalizedKey.includes('area_cc') || normalizedKey.includes('areacc') || normalizedKey.includes('cc')) {
+                } else if (normalizedKey === 'area_cc' || normalizedKey === 'areacc') {
                     normalizedRow.area_cc = row[key];
                 } else if (normalizedKey.includes('sr_area') || normalizedKey.includes('srarea') || normalizedKey.includes('sr')) {
                     normalizedRow.sr_area = String(row[key]).trim();
