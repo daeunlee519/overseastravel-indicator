@@ -58,6 +58,15 @@ function loadData() {
                 }
             });
             
+            // 메모리 부족 방지를 위해 중복 제거는 스킵하고 바로 반환
+            // (대용량 데이터의 경우 중복 제거도 메모리를 많이 사용함)
+            // 중복 제거는 필요할 때만 수행하도록 변경
+            const dataSize = JSON.stringify(actualData).length;
+            if (dataSize > 100 * 1024 * 1024) { // 100MB 이상이면 중복 제거 스킵
+                console.log('대용량 데이터 감지, 중복 제거 스킵 (메모리 절약)');
+                return actualData;
+            }
+            
             // 기존 데이터의 중복 제거 및 정리
             const cleanedData = cleanExistingDataDuplicates(actualData);
             
@@ -950,15 +959,28 @@ app.post('/upload', upload.single('xlsxFile'), handleMulterError, (req, res) => 
         const newAnalysisResults = analyzeWeeklyData(normalizedData);
         console.log('분석 완료, 쿼리 수:', Object.keys(newAnalysisResults).length);
         
-        // 기존 데이터 로드
+        // 기존 데이터 로드 (메모리 효율적으로)
         console.log('기존 데이터 로드 시작');
-        const existingData = loadData();
-        console.log('기존 데이터 로드 완료, 쿼리 수:', Object.keys(existingData).length);
+        let existingData = {};
+        try {
+            existingData = loadData();
+            console.log('기존 데이터 로드 완료, 쿼리 수:', Object.keys(existingData).length);
+        } catch (error) {
+            console.error('기존 데이터 로드 실패 (메모리 부족 가능성):', error.message);
+            console.log('새 데이터만 저장합니다.');
+            existingData = {};
+        }
         
         // 데이터 병합
         console.log('데이터 병합 시작');
         const mergedData = mergeData(existingData, newAnalysisResults);
         console.log('데이터 병합 완료, 총 쿼리 수:', Object.keys(mergedData).length);
+        
+        // 기존 데이터 참조 해제 (메모리 해제)
+        existingData = null;
+        if (global.gc) {
+            global.gc();
+        }
         
         // 병합된 데이터 저장
         console.log('데이터 저장 시작');
