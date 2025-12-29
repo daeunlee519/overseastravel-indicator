@@ -42,6 +42,14 @@ function ensureDataDirectory() {
 function loadData() {
     try {
         if (fs.existsSync(DATA_FILE)) {
+            const stats = fs.statSync(DATA_FILE);
+            const fileSizeMB = stats.size / 1024 / 1024;
+            
+            // 파일 크기 확인
+            if (fileSizeMB > 150) {
+                console.log(`대용량 데이터 파일 감지 (${fileSizeMB.toFixed(2)}MB), 최적화 모드로 로드`);
+            }
+            
             const data = fs.readFileSync(DATA_FILE, 'utf8');
             const parsedData = JSON.parse(data);
             
@@ -51,18 +59,22 @@ function loadData() {
                 actualData = parsedData.data;
             }
             
-            // 기존 데이터에 srArea 필드가 없는 경우 빈 배열로 초기화
-            Object.keys(actualData).forEach(query => {
+            // 기존 데이터에 srArea 필드가 없는 경우 빈 배열로 초기화 (메모리 효율적으로)
+            const queries = Object.keys(actualData);
+            for (let i = 0; i < queries.length; i++) {
+                const query = queries[i];
                 if (actualData[query] && actualData[query].periods && !actualData[query].srArea) {
                     actualData[query].srArea = new Array(actualData[query].periods.length).fill('');
                 }
-            });
+                // 메모리 압박 시 GC 힌트
+                if (i % 10000 === 0 && global.gc) {
+                    global.gc();
+                }
+            }
             
             // 메모리 부족 방지를 위해 중복 제거는 스킵하고 바로 반환
             // (대용량 데이터의 경우 중복 제거도 메모리를 많이 사용함)
-            // 중복 제거는 필요할 때만 수행하도록 변경
-            const dataSize = JSON.stringify(actualData).length;
-            if (dataSize > 100 * 1024 * 1024) { // 100MB 이상이면 중복 제거 스킵
+            if (fileSizeMB > 100) { // 100MB 이상이면 중복 제거 스킵
                 console.log('대용량 데이터 감지, 중복 제거 스킵 (메모리 절약)');
                 return actualData;
             }
@@ -82,6 +94,9 @@ function loadData() {
         return {};
     } catch (error) {
         console.error('데이터 로드 오류:', error);
+        if (error.message && error.message.includes('heap')) {
+            console.error('메모리 부족 오류 발생. 데이터 파일이 너무 큽니다.');
+        }
         return {};
     }
 }
