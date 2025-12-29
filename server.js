@@ -809,23 +809,13 @@ app.post('/upload', upload.single('xlsxFile'), handleMulterError, (req, res) => 
         
         if (!req.file) {
             console.error('파일이 없습니다. 요청 본문:', req.body);
-            clearTimeout(timeout);
-            requestCompleted = true;
-            return res.status(400).json({ 
-                success: false,
-                error: '파일을 선택해주세요.',
-                details: 'xlsxFile 필드에 파일이 없습니다.'
-            });
+            return;
         }
         
         // 파일 크기 체크
         if (req.file.size > 50 * 1024 * 1024) {
-            clearTimeout(timeout);
-            requestCompleted = true;
-            return res.status(400).json({
-                success: false,
-                error: '파일 크기가 너무 큽니다. 최대 50MB까지 업로드 가능합니다.'
-            });
+            console.error('파일 크기가 너무 큽니다:', req.file.size);
+            return;
         }
 
         let jsonData;
@@ -854,7 +844,8 @@ app.post('/upload', upload.single('xlsxFile'), handleMulterError, (req, res) => 
         }
         
         if (jsonData.length === 0) {
-            return res.status(400).json({ error: '파일에 데이터가 없습니다.' });
+            console.error('파일에 데이터가 없습니다.');
+            return;
         }
 
         // 컬럼명 매핑 및 정규화
@@ -890,11 +881,11 @@ app.post('/upload', upload.single('xlsxFile'), handleMulterError, (req, res) => 
         const hasRequiredColumns = requiredColumns.every(col => firstRow[col] !== undefined);
 
         if (!hasRequiredColumns) {
-            return res.status(400).json({ 
-                error: '파일에 필수 컬럼(query, area_sc, area_cc)이 없습니다.',
+            console.error('필수 컬럼이 없습니다:', {
                 availableColumns: Object.keys(jsonData[0]),
                 normalizedColumns: Object.keys(firstRow)
             });
+            return;
         }
 
         // 새 데이터 분석
@@ -927,26 +918,22 @@ app.post('/upload', upload.single('xlsxFile'), handleMulterError, (req, res) => 
         });
         saveUploadHistory(uploadHistory);
 
-        const processingTime = ((Date.now() - startTime) / 1000).toFixed(2);
-        console.log(`업로드 완료, 처리 시간: ${processingTime}초`);
-        logMemoryUsage();
-        
-        clearTimeout(timeout);
-        requestCompleted = true;
-        
-        res.json({
-            success: true,
-            data: mergedData,
-            newData: newAnalysisResults,
-            totalQueries: Object.keys(mergedData).length,
-            totalRecords: Object.values(mergedData).reduce((sum, query) => sum + query.periods.length, 0),
-            message: '데이터가 성공적으로 업로드되고 기존 데이터와 병합되었습니다.',
-            processingTime: processingTime
-        });
+            const processingTime = ((Date.now() - startTime) / 1000).toFixed(2);
+            console.log(`업로드 완료, 처리 시간: ${processingTime}초`);
+            logMemoryUsage();
+            
+            console.log('업로드 성공:', {
+                totalQueries: Object.keys(mergedData).length,
+                totalRecords: Object.values(mergedData).reduce((sum, query) => sum + query.periods.length, 0),
+                processingTime: processingTime
+            });
 
-    } catch (error) {
-        handleError(error, '파일 처리 중 오류가 발생했습니다');
-    }
+        } catch (error) {
+            console.error('파일 처리 오류:', error);
+            console.error('에러 스택:', error.stack);
+            logMemoryUsage();
+        }
+    });
 });
 
 // 업로드 엔드포인트 전역 에러 핸들러
