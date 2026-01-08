@@ -468,10 +468,23 @@ function mergeData(existingData, newData) {
                     // 동일한 기간이 있는 경우 새 데이터로 교체 (같은 파일 재업로드 시)
                     const existingIndex = existing.periods.indexOf(period);
                     
-                    // area_sc: 둘 중 큰 값만 취함
                     const existingSc = existing.areaSc[existingIndex];
+                    const existingCc = existing.areaCc[existingIndex];
                     const newSc = newQueryData.areaSc[index];
+                    const newCc = newQueryData.areaCc[index];
                     
+                    // 비정상적으로 큰 값 검증 (기존 값의 10배 이상 차이 시 로깅)
+                    if (existingCc > 0 && newCc > 0) {
+                        const ratio = Math.max(existingCc, newCc) / Math.min(existingCc, newCc);
+                        if (ratio > 10) {
+                            console.warn(`⚠️ 비정상적인 값 차이 감지: ${query} (${period})`);
+                            console.warn(`   기존: area_sc=${existingSc}, area_cc=${existingCc}`);
+                            console.warn(`   새 값: area_sc=${newSc}, area_cc=${newCc}`);
+                            console.warn(`   비율: ${ratio.toFixed(2)}배`);
+                        }
+                    }
+                    
+                    // area_sc: 둘 중 큰 값만 취함
                     if (newSc > existingSc) {
                         existing.areaSc[existingIndex] = newSc;
                         // area_sc가 더 큰 경우 sr_area도 업데이트
@@ -479,6 +492,7 @@ function mergeData(existingData, newData) {
                     }
                     
                     // area_cc: 새 데이터로 교체 (같은 파일 재업로드 시 중복 합산 방지)
+                    // 단, 새 값이 기존 값의 10배 이상이면 경고 (데이터 오류 가능성)
                     existing.areaCc[existingIndex] = newQueryData.areaCc[index];
                 }
             });
