@@ -1245,6 +1245,15 @@ app.post('/api/filter-analysis', (req, res) => {
             }
         });
         
+        // 기간 필터 파싱
+        let periodFilter = null;
+        if (filters.period) {
+            periodFilter = filters.period;
+        } else if (filters.startPeriod && filters.endPeriod) {
+            // 기간 범위 필터 (향후 확장용)
+            periodFilter = null;
+        }
+        
         // 필터 조건에 맞는 쿼리 찾기
         const filteredQueries = [];
         
@@ -1255,7 +1264,8 @@ app.post('/api/filter-analysis', (req, res) => {
                 // 필터 조건 확인
                 let matchesFilter = true;
                 
-                if (filters.travelCityCode && filters.travelCityCode.length > 0) {
+                if (filters.travelCityCode && 
+                    filters.travelCityCode.length > 0) {
                     if (!queryCode || !filters.travelCityCode.includes(queryCode.travel_cityCode)) {
                         matchesFilter = false;
                     }
@@ -1268,7 +1278,8 @@ app.post('/api/filter-analysis', (req, res) => {
                 }
                 
                 if (filters.travelPtnCode && filters.travelPtnCode.length > 0) {
-                    if (!queryCode || !filters.travelPtnCode.includes(queryCode.travel_ptnCode)) {
+                    if (!queryCode || !filters.travelPtnCo
+                        e.includes(queryCode.travel_ptnCode)) {
                         matchesFilter = false;
                     }
                 }
@@ -1286,23 +1297,46 @@ app.post('/api/filter-analysis', (req, res) => {
                 }
                 
                 if (matchesFilter) {
-                    const totalAreaSc = queryData.areaSc ? queryData.areaSc.reduce((a, b) => a + b, 0) : 0;
-                    const totalAreaCc = queryData.areaCc ? queryData.areaCc.reduce((a, b) => a + b, 0) : 0;
+                    // 기간 필터가 있으면 특정 기간만, 없으면 모든 기간 합산
+                    let totalAreaSc, totalAreaCc;
+                    let filteredPeriods, filteredAreaSc, filteredAreaCc;
                     
-                    // 주간 추이 데이터 생성
-                    const weeklyTrend = queryData.periods ? queryData.periods.map((period, index) => ({
+                    if (periodFilter) {
+                        // 특정 기간만 필터링
+                        const periodIndex = queryData.periods ? queryData.periods.indexOf(periodFilter) : -1;
+                        if (periodIndex !== -1) {
+                            totalAreaSc = queryData.areaSc ? (queryData.areaSc[periodIndex] || 0) : 0;
+                            totalAreaCc = queryData.areaCc ? (queryData.areaCc[periodIndex] || 0) : 0;
+                            filteredPeriods = [periodFilter];
+                            filteredAreaSc = [totalAreaSc];
+                            filteredAreaCc = [totalAreaCc];
+                        } else {
+                            // 해당 기간에 데이터가 없으면 스킵
+                            continue;
+                        }
+                    } else {
+                        // 모든 기간 합산
+                        totalAreaSc = queryData.areaSc ? queryData.areaSc.reduce((a, b) => a + b, 0) : 0;
+                        totalAreaCc = queryData.areaCc ? queryData.areaCc.reduce((a, b) => a + b, 0) : 0;
+                        filteredPeriods = queryData.periods || [];
+                        filteredAreaSc = queryData.areaSc || [];
+                        filteredAreaCc = queryData.areaCc || [];
+                    }
+                    
+                    // 주간 추이 데이터 생성 (필터링된 기간 기준)
+                    const weeklyTrend = filteredPeriods.map((period, index) => ({
                         period,
-                        areaSc: queryData.areaSc ? queryData.areaSc[index] || 0 : 0,
-                        areaCc: queryData.areaCc ? queryData.areaCc[index] || 0 : 0
-                    })) : [];
+                        areaSc: filteredAreaSc[index] || 0,
+                        areaCc: filteredAreaCc[index] || 0
+                    }));
                     
                     filteredQueries.push({
                         query,
                         totalAreaSc,
                         totalAreaCc,
-                        periods: queryData.periods || [],
-                        areaSc: queryData.areaSc || [],
-                        areaCc: queryData.areaCc || [],
+                        periods: filteredPeriods,
+                        areaSc: filteredAreaSc,
+                        areaCc: filteredAreaCc,
                         weeklyTrend,
                         queryCode: queryCode || {}
                     });
@@ -1529,6 +1563,72 @@ app.delete('/api/remove-period/:period', (req, res) => {
             message: '데이터 제거 중 오류가 발생했습니다.',
             error: error.message
         });
+    }
+});
+
+// 특정 쿼리의 특정 기간 데이터 수정 API (디버깅용)
+app.post('/api/fix-query-period', (req, res) => {
+    try {
+        const { query, period, areaSc, areaCc } = req.body;
+        
+        if (!query || !period) {
+            return res.status(400).json({ error: 'query와 period는 필수입니다.' });
+        }
+        
+        const data = loadData();
+        
+        if (!data[query]) {
+            return res.status(404).json({ error: '쿼리를 찾을 수 없습니다.' });
+        }
+        
+        const queryData = data[query];
+        const periodIndex = queryData.periods.indexOf(period);
+        
+        if (periodIndex === -1) {
+            return res.status(404).json({ error: '기간을 찾을 수 없습니다.' });
+        }
+        
+        // 데이터 수정
+        if (areaSc !== undefined) {
+            queryData.areaSc[periodIndex] = areaSc;
+        }
+        if (areaCc !== undefined) {
+            queryData.areaCc[periodIndex] = areaCc;
+        }
+        
+        // 증감율 재계산
+        queryData.scGrowthRates = [0];
+        queryData.ccGrowthRates = [0];
+        
+        for (let i = 1; i < queryData.areaSc.length; i++) {
+            const prevSc = queryData.areaSc[i - 1];
+            const prevCc = queryData.areaCc[i - 1];
+            const currSc = queryData.areaSc[i];
+            const currCc = queryData.areaCc[i];
+            
+            const scGrowthRate = prevSc !== 0 ? ((currSc - prevSc) / prevSc * 100) : 0;
+            const ccGrowthRate = prevCc !== 0 ? ((currCc - prevCc) / prevCc * 100) : 0;
+            
+            queryData.scGrowthRates.push(scGrowthRate);
+            queryData.ccGrowthRates.push(ccGrowthRate);
+        }
+        
+        // 저장
+        saveData(data);
+        
+        res.json({
+            success: true,
+            message: '데이터 수정 완료',
+            data: {
+                query: query,
+                period: period,
+                areaSc: queryData.areaSc[periodIndex],
+                areaCc: queryData.areaCc[periodIndex]
+            }
+        });
+    } catch (error) {
+        console.error('데이터 수정 오류:', error);
+        res.status(500).json({ error: '데이터 수정 중 오류가 발생했습니다: ' + error.message });
     }
 });
 
