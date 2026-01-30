@@ -106,18 +106,11 @@ function cleanExistingData(data) {
     const cleanedData = {};
     
     Object.entries(data).forEach(([query, queryData]) => {
-        // 쿼리명 정리 (따옴표, 쉼표, 공백 제거)
-        let cleanQuery = query;
-        if (typeof query === 'string') {
-            cleanQuery = query.replace(/^["',\s]+|["',\s]+$/g, ''); // 앞뒤 따옴표, 쉼표, 공백 제거
-        }
-        
-        // 빈 쿼리명이면 건너뛰기
+        // 쿼리명 정규화하지 않고 그대로 사용
+        const cleanQuery = typeof query === 'string' ? query : String(query || '');
         if (!cleanQuery || cleanQuery.length === 0) {
             return;
         }
-        
-        // 기존 데이터 구조 유지하면서 쿼리명만 정리
         cleanedData[cleanQuery] = {
             periods: queryData.periods || [],
             areaSc: queryData.areaSc || [],
@@ -952,10 +945,8 @@ app.post('/upload', upload.single('xlsxFile'), handleMulterError, (req, res) => 
                 const normalizedKey = key.toLowerCase().replace(/\s+/g, '');
                 
                 if (normalizedKey.includes('query') || normalizedKey === 'query') {
-                    // 쿼리명에서 불필요한 따옴표와 쉼표 제거
-                    let queryValue = String(row[key]).trim();
-                    queryValue = queryValue.replace(/^["',\s]+|["',\s]+$/g, ''); // 앞뒤 따옴표, 쉼표, 공백 제거
-                    normalizedRow.query = queryValue;
+                    // 쿼리명 정규화하지 않고 엑셀 값 그대로 사용
+                    normalizedRow.query = String(row[key] ?? '');
                 } else if (normalizedKey.includes('period') || normalizedKey === 'period') {
                     normalizedRow.period = String(row[key]).trim();
                 } else if (normalizedKey.includes('area_sc') || normalizedKey.includes('areasc') || normalizedKey === 'sc') {
