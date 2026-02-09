@@ -283,6 +283,7 @@ function saveUploadHistory(history) {
 // Git 저장소에 데이터 파일 푸시 (GITHUB_TOKEN, GITHUB_REPO 설정 시)
 const GITHUB_REPO = process.env.GITHUB_REPO; // 예: daeunlee519/overseastravel-indicator
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
 
 async function pushFileToGit(repoPath, localFilePath) {
     if (!GITHUB_TOKEN || !GITHUB_REPO) return;
@@ -318,7 +319,7 @@ async function pushFileToGit(repoPath, localFilePath) {
         const body = {
             message: `Update ${repoPath} (${new Date().toISOString().slice(0, 10)})`,
             content: base64,
-            branch: 'main'
+            branch: GITHUB_BRANCH
         };
         if (sha) body.sha = sha;
         const putRes = await globalThis.fetch(apiUrl, {
@@ -343,9 +344,15 @@ async function pushFileToGit(repoPath, localFilePath) {
 }
 
 function pushDataToGitAsync() {
-    if (!GITHUB_TOKEN || !GITHUB_REPO) return;
+    if (!GITHUB_TOKEN || !GITHUB_REPO) {
+        console.log('Git 푸시 스킵: GITHUB_TOKEN 또는 GITHUB_REPO 미설정');
+        return;
+    }
+    console.log('Git 푸시 시작:', GITHUB_REPO, 'branch:', GITHUB_BRANCH);
     setImmediate(() => {
-        pushFileToGit('data/weekly_data.json', DATA_FILE).then(() => pushFileToGit('data/upload_history.json', UPLOAD_HISTORY_FILE));
+        pushFileToGit('data/weekly_data.json', DATA_FILE)
+            .then(() => pushFileToGit('data/upload_history.json', UPLOAD_HISTORY_FILE))
+            .catch(err => console.error('Git 푸시 중 예외:', err.message));
     });
 }
 
