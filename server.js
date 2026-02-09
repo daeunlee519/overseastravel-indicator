@@ -12,9 +12,10 @@ const PORT = process.env.PORT || 3000;
 // 환경 변수에서 파일 경로 가져오기 (없으면 기본값 사용)
 const QUERY_CODE_FILE_PATH = process.env.QUERY_CODE_FILE_PATH || '/Users/user/Documents/쿼리별 주간지표/top_20000_query_분리.xlsx';
 
-// 데이터 저장 파일 경로
-const DATA_FILE = path.join(__dirname, 'data', 'weekly_data.json');
-const UPLOAD_HISTORY_FILE = path.join(__dirname, 'data', 'upload_history.json');
+// 데이터 저장 경로: Render Disk 등 영구 저장 시 DATA_DIR 환경 변수 사용 (예: /opt/render/project/data)
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const DATA_FILE = path.join(DATA_DIR, 'weekly_data.json');
+const UPLOAD_HISTORY_FILE = path.join(DATA_DIR, 'upload_history.json');
 
 // Middleware
 app.use(cors());
@@ -277,6 +278,65 @@ function saveUploadHistory(history) {
     } catch (error) {
         console.error('업로드 히스토리 저장 오류:', error);
     }
+}
+
+// Git 저장소에 데이터 파일 푸시 (GITHUB_TOKEN, GITHUB_REPO 설정 시)
+const GITHUB_REPO = process.env.GITHUB_REPO; // 예: daeunlee519/overseastravel-indicator
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+
+async function pushFileToGit(repoPath, localFilePath) {
+    if (!GITHUB_TOKEN || !GITHUB_REPO) return;
+    if (typeof globalThis.fetch !== 'function') {
+        console.warn('Git 푸시 스킵: fetch 없음 (Node 18 이상 필요)');
+        return;
+    }
+    try {
+        if (!fs.existsSync(localFilePath)) return;
+        const content = fs.readFileSync(localFilePath, 'utf8');
+        if (Buffer.byteLength(content, 'utf8') > 95 * 1024 * 1024) {
+            console.warn('Git 푸시 스킵: 파일이 95MB 초과 (GitHub 제한)', localFilePath);
+            return;
+        }
+        const base64 = Buffer.from(content, 'utf8').toString('base64');
+        const apiUrl = `https://api.github.com/repos/${GITHUB_REPO}/contents/${repoPath}`;
+        const headers = {
+            'Authorization': `Bearer ${GITHUB_TOKEN}`,
+            'Accept': 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+            'Content-Type': 'application/json'
+        };
+        let sha = null;
+        const getRes = await globalThis.fetch(apiUrl, { headers });
+        if (getRes.ok) {
+            const existing = await getRes.json();
+            sha = existing.sha;
+        }
+        const body = {
+            message: `Update ${repoPath} (${new Date().toISOString().slice(0, 10)})`,
+            content: base64
+        };
+        if (sha) body.sha = sha;
+        const putRes = await globalThis.fetch(apiUrl, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify(body)
+        });
+        if (putRes.ok) {
+            console.log('Git 푸시 완료:', repoPath);
+        } else {
+            const err = await putRes.text();
+            console.error('Git 푸시 실패:', repoPath, putRes.status, err);
+        }
+    } catch (err) {
+        console.error('Git 푸시 오류:', repoPath, err.message);
+    }
+}
+
+function pushDataToGitAsync() {
+    if (!GITHUB_TOKEN || !GITHUB_REPO) return;
+    setImmediate(() => {
+        pushFileToGit('data/weekly_data.json', DATA_FILE).then(() => pushFileToGit('data/upload_history.json', UPLOAD_HISTORY_FILE));
+    });
 }
 
 // Multer configuration for file uploads
@@ -1016,6 +1076,7 @@ app.post('/upload', upload.single('xlsxFile'), handleMulterError, (req, res) => 
             queriesProcessed: Object.keys(newAnalysisResults).length
         });
         saveUploadHistory(uploadHistory);
+        pushDataToGitAsync();
 
             const processingTime = ((Date.now() - startTime) / 1000).toFixed(2);
             console.log(`업로드 완료, 처리 시간: ${processingTime}초`);
@@ -1283,8 +1344,7 @@ app.post('/api/filter-analysis', (req, res) => {
                 }
                 
                 if (filters.travelPtnCode && filters.travelPtnCode.length > 0) {
-                    if (!queryCode || !filters.travelPtnCo
-                        e.includes(queryCode.travel_ptnCode)) {
+                    if (!queryCode || !filters.travelPtnCode.includes(queryCode.travel_ptnCode)) {
                         matchesFilter = false;
                     }
                 }
@@ -1552,6 +1612,7 @@ app.delete('/api/remove-period/:period', (req, res) => {
         // 수정된 데이터 저장
         saveData(weeklyData);
         saveUploadHistory(filteredHistory);
+        pushDataToGitAsync();
         
         res.json({
             success: true,
@@ -1620,6 +1681,7 @@ app.post('/api/fix-query-period', (req, res) => {
         
         // 저장
         saveData(data);
+        pushDataToGitAsync();
         
         res.json({
             success: true,
