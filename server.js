@@ -293,6 +293,10 @@ async function pushFileToGit(repoPath, localFilePath) {
     try {
         if (!fs.existsSync(localFilePath)) return;
         const content = fs.readFileSync(localFilePath, 'utf8');
+        if (!content || content.length < 2) {
+            console.warn('Git 푸시 스킵: 파일 내용 없음', localFilePath);
+            return;
+        }
         if (Buffer.byteLength(content, 'utf8') > 95 * 1024 * 1024) {
             console.warn('Git 푸시 스킵: 파일이 95MB 초과 (GitHub 제한)', localFilePath);
             return;
@@ -313,7 +317,8 @@ async function pushFileToGit(repoPath, localFilePath) {
         }
         const body = {
             message: `Update ${repoPath} (${new Date().toISOString().slice(0, 10)})`,
-            content: base64
+            content: base64,
+            branch: 'main'
         };
         if (sha) body.sha = sha;
         const putRes = await globalThis.fetch(apiUrl, {
@@ -324,11 +329,16 @@ async function pushFileToGit(repoPath, localFilePath) {
         if (putRes.ok) {
             console.log('Git 푸시 완료:', repoPath);
         } else {
-            const err = await putRes.text();
-            console.error('Git 푸시 실패:', repoPath, putRes.status, err);
+            const errText = await putRes.text();
+            let errMsg = errText;
+            try {
+                const errJson = JSON.parse(errText);
+                errMsg = errJson.message || errText;
+            } catch (_) {}
+            console.error('Git 푸시 실패:', repoPath, putRes.status, errMsg);
         }
     } catch (err) {
-        console.error('Git 푸시 오류:', repoPath, err.message);
+        console.error('Git 푸시 오류:', repoPath, err.message, err.stack);
     }
 }
 
